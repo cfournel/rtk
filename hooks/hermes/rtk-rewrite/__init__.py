@@ -2,7 +2,7 @@
 
 All rewrite logic lives in RTK's Rust ``rtk rewrite`` command; this module
 also provides a pure-Python ``transform_tool_result`` filter for high-token
-tools (browser_navigate, execute_code, read_file).
+tools (browser_navigate, execute_code, read_file, terminal).
 """
 
 import json
@@ -93,6 +93,8 @@ def _transform_tool_result(tool_name=None, result=None, **_kwargs):
     """Filter high-token tool outputs before they enter the conversation context."""
     if tool_name == "browser_navigate":
         return _filter_browser(result)
+    if tool_name == "terminal":
+        return _filter_terminal(result)
     if tool_name in ("execute_code", "read_file"):
         return _filter_text(result)
 
@@ -130,6 +132,36 @@ def _filter_browser(result):
     if after < before:
         print(
             f"rtk: filtered browser_navigate: {before} -> {after} chars"
+            f" ({100*(before-after)//before}% reduction)",
+            file=sys.stderr,
+        )
+        return filtered
+
+
+def _filter_terminal(result):
+    """Filter terminal tool output: parse JSON wrapper, filter the output field, repack."""
+    if not isinstance(result, str) or not result.strip():
+        return
+    before = len(result)
+    try:
+        data = json.loads(result)
+    except (json.JSONDecodeError, ValueError):
+        return _filter_text(result)
+
+    output = data.get("output", "")
+    if not output:
+        return
+
+    filtered_output = _filter_text(output)
+    if filtered_output is None:
+        return
+
+    data["output"] = filtered_output
+    filtered = json.dumps(data, ensure_ascii=False)
+    after = len(filtered)
+    if after < before:
+        print(
+            f"rtk: filtered terminal: {before} -> {after} chars"
             f" ({100*(before-after)//before}% reduction)",
             file=sys.stderr,
         )
